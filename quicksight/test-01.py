@@ -1,4 +1,5 @@
 import os
+from time import sleep
 from operator import itemgetter
 
 import boto3
@@ -30,15 +31,48 @@ def main():
     qs_sg = session.client("quicksight", region_name=REGION_1)
     qs_jkt = session.client("quicksight", region_name=REGION_2)
 
-    qs_data_sources = qs_sg.list_data_sources(AwsAccountId=aws_account_id)[
-        "DataSources"
-    ]
+    datasource_names = ["smdg-master-terminal-facilities-list", "wti-daily"]
 
-    get_data_sources = itemgetter("Arn", "DataSourceId", "Name")
+    type_getter = itemgetter("Type")
+    name_getter = itemgetter("Name")
+    arn_getter = itemgetter("Arn")
 
-    datasource_names = ["smdg-master-terminal-facilities-list.csv", "wti-daily.csv"]
+    qs_data_sources = qs_sg.list_data_sources(AwsAccountId=aws_account_id)
+    qs_data_sets = qs_sg.list_data_sets(AwsAccountId=aws_account_id)
+    qs_dashboards = qs_sg.list_dashboards(AwsAccountId=aws_account_id)
 
-    ic(list(map(get_data_sources, qs_data_sources)))
+    data_source_arns = list(
+        map(
+            lambda x: x,
+            filter(
+                lambda x: type_getter(x) == "ATHENA",
+                qs_data_sources["DataSources"],
+            ),
+        )
+    )
+    data_set_arns = list(
+        map(
+            lambda x: x,
+            filter(
+                lambda x: x,
+                qs_data_sets["DataSetSummaries"],
+            ),
+        )
+    )
+    dashboard_arns = list(
+        map(
+            arn_getter,
+            filter(
+                lambda x: name_getter(x) == "dashboard-sg",
+                qs_dashboards["DashboardSummaryList"],
+            ),
+        )
+    )
+
+    # ic(data_source_arns)
+    # ic(data_set_arns)
+    ic(dashboard_arns)
+
 
 
 if __name__ == "__main__":
