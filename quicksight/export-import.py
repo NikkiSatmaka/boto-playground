@@ -1,4 +1,3 @@
-import os
 from operator import itemgetter
 from pathlib import Path
 from time import sleep
@@ -13,12 +12,6 @@ from mypy_boto3_quicksight import QuickSightClient
 
 load_dotenv()
 
-AWS_ACCESS_KEY_ID = os.environ["AWS_ACCESS_KEY_ID"]
-AWS_SECRET_ACCESS_KEY = os.environ["AWS_SECRET_ACCESS_KEY"]
-AWS_REGION = os.environ["AWS_REGION"]
-AWS_PROFILE = os.environ["AWS_PROFILE"]
-REGION_1 = os.environ["REGION_1"]
-REGION_2 = os.environ["REGION_2"]
 AWS_ACCOUNT_ID = boto3.client("sts").get_caller_identity()["Account"]
 
 ROOT_DIR = Path(__file__).parent

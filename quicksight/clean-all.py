@@ -1,4 +1,3 @@
-import os
 from operator import itemgetter
 
 import boto3
@@ -8,11 +7,6 @@ from loguru import logger
 
 load_dotenv()
 
-AWS_ACCESS_KEY_ID = os.environ["AWS_ACCESS_KEY_ID"]
-AWS_SECRET_ACCESS_KEY = os.environ["AWS_SECRET_ACCESS_KEY"]
-AWS_REGION = os.environ["AWS_REGION"]
-AWS_PROFILE = os.environ["AWS_PROFILE"]
-REGION = os.environ["AWS_REGION"]
 AWS_ACCOUNT_ID = boto3.client("sts").get_caller_identity()["Account"]
 
 app = typer.Typer()
