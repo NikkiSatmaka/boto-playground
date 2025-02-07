@@ -1,5 +1,7 @@
 # BOTO Playground
 
+Prepare your .env file in the project directory
+
 Use uv as environment and package manager
 
 https://docs.astral.sh/uv/getting-started/installation/
