@@ -16,4 +16,5 @@ dependencies = [
 [dependency-groups]
 dev = [
     "boto3-stubs[full]>=1.36.11",
+    "ipykernel>=6.29.5",
 ]
