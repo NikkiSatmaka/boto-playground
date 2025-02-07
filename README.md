@@ -1,6 +1,7 @@
 # BOTO Playground
 
 Prepare your .env file in the project directory
+Rename env.sample to .env and fill in your environment variables
 
 Use uv as environment and package manager
 
