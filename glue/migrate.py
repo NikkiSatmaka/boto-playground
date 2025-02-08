@@ -6,7 +6,7 @@ import boto3
 import typer
 from dotenv import load_dotenv
 from loguru import logger
-from mypy_boto3_glue.client import GlueClient
+from mypy_boto3_glue import GlueClient
 
 load_dotenv()
 
