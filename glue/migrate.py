@@ -115,7 +115,7 @@ def migrate_glue_db(glue_client, db_to_migrate):
         try:
             glue_client.create_database(DatabaseInput=i)
         except glue_client.exceptions.AlreadyExistsException as e:
-            logger.error(f"{i["Name"]}: {e}")
+            logger.error(f"{i['Name']}: {e}")
 
 
 def migrate_glue_tables(glue_client, db_tables_to_migrate):
@@ -124,7 +124,7 @@ def migrate_glue_tables(glue_client, db_tables_to_migrate):
             try:
                 glue_client.create_table(DatabaseName=db, TableInput=table)
             except glue_client.exceptions.AlreadyExistsException as e:
-                logger.error(f"{table["Name"]}: {e}")
+                logger.error(f"{table['Name']}: {e}")
 
 
 def migrate_glue_crawler(glue_client, crawler_to_migrate):
@@ -132,7 +132,7 @@ def migrate_glue_crawler(glue_client, crawler_to_migrate):
         try:
             glue_client.create_crawler(**i)
         except glue_client.exceptions.AlreadyExistsException as e:
-            logger.error(f"{i["Name"]}: {e}")
+            logger.error(f"{i['Name']}: {e}")
 
 
 def migrate_glue_classifier(glue_client, classifier_to_migrate):
@@ -146,6 +146,9 @@ def migrate_glue_classifier(glue_client, classifier_to_migrate):
 @app.command()
 def main(source_region: str, target_region: str):
     session = boto3.Session()
+
+    logger.info(f"AWS Account ID: {AWS_ACCOUNT_ID}")
+
     glue_source = session.client("glue", region_name=source_region)
     glue_target = session.client("glue", region_name=target_region)
 
@@ -160,8 +163,6 @@ def main(source_region: str, target_region: str):
     migrate_glue_tables(glue_target, db_tables_to_migrate)
     migrate_glue_crawler(glue_target, crawler_to_migrate)
     migrate_glue_classifier(glue_target, classifier_to_migrate)
-
-    logger.info(f"AWS Account ID: {AWS_ACCOUNT_ID}")
 
 
 if __name__ == "__main__":
