@@ -33,7 +33,7 @@ name_getter = itemgetter("Name")
 arn_getter = itemgetter("Arn")
 
 
-def get_all_assets(qs_client: QuickSightClient) -> dict:
+def get_qs_all_assets(qs_client: QuickSightClient) -> Dict:
     """Retrieve all QuickSight assets from the given region."""
     return {
         "data_sources": qs_client.list_data_sources(AwsAccountId=AWS_ACCOUNT_ID).get(
@@ -51,6 +51,24 @@ def get_all_assets(qs_client: QuickSightClient) -> dict:
         "folders": qs_client.list_folders(AwsAccountId=AWS_ACCOUNT_ID).get(
             "FolderSummaryList", []
         ),
+    }
+
+
+def get_qs_refresh_schedules(
+    qs_client: QuickSightClient, dataset_id: str
+) -> Sequence[Mapping[str, Any]]:
+    return qs_client.list_refresh_schedules(
+        AwsAccountId=AWS_ACCOUNT_ID, DataSetId=dataset_id
+    ).get("RefreshSchedules", [])
+
+
+def get_qs_dataset_refresh_schedules(
+    qs_client: QuickSightClient, dataset_id_list: Sequence
+) -> Dict[str, Sequence[Mapping[str, Any]]]:
+    """Retrieve all Glue tables for a list of databases."""
+    return {
+        dataset_id: get_qs_refresh_schedules(qs_client, dataset_id)
+        for dataset_id in dataset_id_list
     }
 
 
