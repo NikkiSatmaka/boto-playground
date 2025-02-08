@@ -1,6 +1,7 @@
 from operator import itemgetter
 from pathlib import Path
 from time import sleep
+from typing import Any, Dict, Iterable, Iterator, List, Mapping, Sequence
 
 import boto3
 import httpx
@@ -13,10 +14,12 @@ from mypy_boto3_quicksight import QuickSightClient
 load_dotenv()
 
 AWS_ACCOUNT_ID = boto3.client("sts").get_caller_identity()["Account"]
-
-ROOT_DIR = Path(__file__).parent
+ROOT_DIR = Path(__file__).parent.absolute()
 
 app = typer.Typer()
+
+EXPORT_JOB_NAME = "quicksight-export"
+IMPORT_JOB_NAME = "quicksight-import"
 
 datasource_name = "data-test12345"
 dataset_name = "netflix_data"
@@ -30,18 +33,129 @@ name_getter = itemgetter("Name")
 arn_getter = itemgetter("Arn")
 
 
-def get_all(qs_object: QuickSightClient) -> dict:
-    data_sources = qs_object.list_data_sources(AwsAccountId=AWS_ACCOUNT_ID)
-    data_sets = qs_object.list_data_sets(AwsAccountId=AWS_ACCOUNT_ID)
-    analysis = qs_object.list_analyses(AwsAccountId=AWS_ACCOUNT_ID)
-    dashboards = qs_object.list_dashboards(AwsAccountId=AWS_ACCOUNT_ID)
-
+def get_all_assets(qs_client: QuickSightClient) -> dict:
+    """Retrieve all QuickSight assets from the given region."""
     return {
-        "data_source": data_sources["DataSources"],
-        "data_sets": data_sets["DataSetSummaries"],
-        "analysis": analysis["AnalysisSummaryList"],
-        "dashboards": dashboards["DashboardSummaryList"],
+        "data_sources": qs_client.list_data_sources(AwsAccountId=AWS_ACCOUNT_ID).get(
+            "DataSources", []
+        ),
+        "data_sets": qs_client.list_data_sets(AwsAccountId=AWS_ACCOUNT_ID).get(
+            "DataSetSummaries", []
+        ),
+        "analyses": qs_client.list_analyses(AwsAccountId=AWS_ACCOUNT_ID).get(
+            "AnalysisSummaryList", []
+        ),
+        "dashboards": qs_client.list_dashboards(AwsAccountId=AWS_ACCOUNT_ID).get(
+            "DashboardSummaryList", []
+        ),
+        "folders": qs_client.list_folders(AwsAccountId=AWS_ACCOUNT_ID).get(
+            "FolderSummaryList", []
+        ),
     }
+
+
+def export_assets(qs_client: QuickSightClient, resource_arns: Sequence[str]) -> bytes:
+    """Export all QuickSight assets to a downloadable bundle."""
+    logger.info("Starting asset export...")
+    response = qs_client.start_asset_bundle_export_job(
+        AwsAccountId=AWS_ACCOUNT_ID,
+        AssetBundleExportJobId=EXPORT_JOB_NAME,
+        ResourceArns=resource_arns,
+        IncludeAllDependencies=True,
+        ExportFormat="QUICKSIGHT_JSON",
+        IncludePermissions=True,
+        IncludeFolderMemberships=True,
+        IncludeFolderMembers="RECURSE",
+        IncludeTags=True,
+    )
+    job_id = response["AssetBundleExportJobId"]
+
+    # Polling export job status
+    while True:
+        job_status = qs_client.describe_asset_bundle_export_job(
+            AwsAccountId=AWS_ACCOUNT_ID, AssetBundleExportJobId=job_id
+        )
+        if job_status["JobStatus"] in ["SUCCESSFUL", "FAILED"]:
+            break
+        sleep(2)
+
+    if job_status["JobStatus"] == "FAILED":
+        raise Exception("Quicksight asset export failed")
+
+    # Download asset bundle
+    asset_bundle_url = job_status.get("DownloadUrl", "")
+    if not asset_bundle_url:
+        raise Exception("Quicksight asset export failed")
+    with httpx.Client() as client:
+        r = client.get(asset_bundle_url)
+    return r.content
+
+
+def import_assets(qs_client: QuickSightClient, asset_data: bytes):
+    """Import QuickSight assets from a downloaded bundle."""
+    logger.info("Starting asset import...")
+    response = qs_client.start_asset_bundle_import_job(
+        AwsAccountId=AWS_ACCOUNT_ID,
+        AssetBundleImportJobId=IMPORT_JOB_NAME,
+        AssetBundleImportSource={"Body": asset_data},
+        FailureAction="ROLLBACK",
+    )
+    job_id = response["AssetBundleImportJobId"]
+
+    # Polling import job status
+    while True:
+        job_status = qs_client.describe_asset_bundle_import_job(
+            AwsAccountId=AWS_ACCOUNT_ID, AssetBundleImportJobId=job_id
+        )
+        if job_status["JobStatus"] in [
+            "SUCCESSFUL",
+            "FAILED",
+            "FAILED_ROLLBACK_COMPLETED",
+        ]:
+            break
+        sleep(2)
+
+    if job_status["JobStatus"] in ["FAILED", "FAILED_ROLLBACK_COMPLETED"]:
+        raise Exception("Quicksight asset import failed")
+
+    logger.info("Quicksight asset import completed successfully")
+
+
+def migrate_folders_and_permissions(
+    qs_source: QuickSightClient, qs_target: QuickSightClient
+):
+    """Migrate QuickSight folders and their permissions."""
+    logger.info("Migrating folders and permissions...")
+    source_folders = qs_source.list_folders(AwsAccountId=AWS_ACCOUNT_ID).get(
+        "FolderSummaryList", []
+    )
+
+    for folder in source_folders:
+        folder_name = folder.get("Name", "")
+        folder_id = folder.get("FolderId", "")
+        if not folder_name:
+            continue
+        try:
+            qs_target.create_folder(
+                AwsAccountId=AWS_ACCOUNT_ID,
+                FolderId=folder_id,
+                Name=folder_name,
+                FolderType=folder.get("FolderType", "RESTRICTED"),
+            )
+        except (Exception, qs_target.exceptions.ResourceExistsException) as e:
+            logger.warning(f"Folder {folder_name} already axists: {e}")
+
+        # Copy folder permissions
+        permissions = qs_source.describe_folder_permissions(
+            AwsAccountId=AWS_ACCOUNT_ID, FolderId=folder_id
+        )
+        qs_target.update_folder_permissions(
+            AwsAccountId=AWS_ACCOUNT_ID,
+            FolderId=folder_id,
+            GrantPermissions=permissions.get("Permissions", []),
+        )
+
+    logger.info("Folders and permissions migrated successfully.")
 
 
 def get_keys(data_sources, func_getter, criteria):
@@ -86,50 +200,54 @@ def main(source_region: str, target_region: str):
     qs_source = session.client("quicksight", region_name=source_region)
     qs_target = session.client("quicksight", region_name=target_region)
 
-    source_data_sources = get_all(qs_source)["data_source"]
-    source_data_sets = get_all(qs_source)["data_sets"]
-    source_analysis = get_all(qs_source)["analysis"]
-    source_dashboards = get_all(qs_source)["dashboards"]
+    # Get assets
+    source_assets = get_all_assets(qs_source)
+    target_assets = get_all_assets(qs_target)
 
-    target_data_sources = get_all(qs_target)["data_source"]
-    target_data_sets = get_all(qs_target)["data_sets"]
-    target_analysis = get_all(qs_target)["analysis"]
-    target_dashboards = get_all(qs_target)["dashboards"]
+    source_data_sources = source_assets["data_source"]
+    source_data_sets = source_assets["data_sets"]
+    source_analysis = source_assets["analysis"]
+    source_dashboards = source_assets["dashboards"]
 
-    source_data_source_arns = get_arns(source_data_sources, data_source_criteria)
-    source_data_set_arns = get_arns(source_data_sets, data_set_criteria)
-    source_analysis_arns = get_arns(source_analysis, analysis_criteria)
-    source_dashboard_arns = get_arns(source_dashboards, dashboard_criteria)
+    target_data_sources = target_assets["data_source"]
+    target_data_sets = target_assets["data_sets"]
+    target_analysis = target_assets["analysis"]
+    target_dashboards = target_assets["dashboards"]
+
+    source_data_source_arns = get_arns(source_data_sources, lambda x: x)
+    source_data_set_arns = get_arns(source_data_sets, lambda x: x)
+    source_analysis_arns = get_arns(source_analysis, lambda x: x)
+    source_dashboard_arns = get_arns(source_dashboards, lambda x: x)
 
     source_data_source_ids = get_keys(
-        source_data_sources, itemgetter("DataSourceId"), data_source_criteria
+        source_data_sources, itemgetter("DataSourceId"), lambda x: x
     )
     source_data_set_ids = get_keys(
-        source_data_sets, itemgetter("DataSetId"), data_set_criteria
+        source_data_sets, itemgetter("DataSetId"), lambda x: x
     )
     source_analysis_ids = get_keys(
-        source_analysis, itemgetter("AnalysisId"), analysis_criteria
+        source_analysis, itemgetter("AnalysisId"), lambda x: x
     )
     source_dashboard_ids = get_keys(
-        source_dashboards, itemgetter("DashboardId"), dashboard_criteria
+        source_dashboards, itemgetter("DashboardId"), lambda x: x
     )
 
-    target_data_source_arns = get_arns(target_data_sources, data_source_criteria)
-    target_data_set_arns = get_arns(target_data_sets, data_set_criteria)
-    target_analysis_arns = get_arns(target_analysis, analysis_criteria)
-    target_dashboard_arns = get_arns(target_dashboards, dashboard_criteria)
+    target_data_source_arns = get_arns(target_data_sources, lambda x: x)
+    target_data_set_arns = get_arns(target_data_sets, lambda x: x)
+    target_analysis_arns = get_arns(target_analysis, lambda x: x)
+    target_dashboard_arns = get_arns(target_dashboards, lambda x: x)
 
     target_data_source_ids = get_keys(
-        target_data_sources, itemgetter("DataSourceId"), data_source_criteria
+        target_data_sources, itemgetter("DataSourceId"), lambda x: x
     )
     target_data_set_ids = get_keys(
-        target_data_sets, itemgetter("DataSetId"), data_set_criteria
+        target_data_sets, itemgetter("DataSetId"), lambda x: x
     )
     target_analysis_ids = get_keys(
-        target_analysis, itemgetter("AnalysisId"), analysis_criteria
+        target_analysis, itemgetter("AnalysisId"), lambda x: x
     )
     target_dashboard_ids = get_keys(
-        target_dashboards, itemgetter("DashboardId"), dashboard_criteria
+        target_dashboards, itemgetter("DashboardId"), lambda x: x
     )
 
     ic(source_data_source_arns)
@@ -152,61 +270,26 @@ def main(source_region: str, target_region: str):
     ic(target_analysis_ids)
     ic(target_dashboard_ids)
 
-    export_response = qs_source.start_asset_bundle_export_job(
-        AwsAccountId=AWS_ACCOUNT_ID,
-        AssetBundleExportJobId=asset_export_job_name,
-        ResourceArns=[*source_dashboard_arns],
-        IncludeAllDependencies=True,
-        ExportFormat="QUICKSIGHT_JSON",
-        IncludePermissions=True,
-        IncludeFolderMemberships=True,
-        IncludeTags=True,
+    # Export assets
+    asset_data = export_assets(
+        qs_source,
+        [
+            *source_dashboard_arns,
+            *source_analysis_arns,
+            *source_data_set_arns,
+            *source_data_source_arns,
+        ],
     )
+    with open(ROOT_DIR.joinpath("data/quicksight_asset_bundle.qs"), "wb") as f:
+        f.write(asset_data)
 
-    while True:
-        probe_export_response = qs_source.describe_asset_bundle_export_job(
-            AwsAccountId=AWS_ACCOUNT_ID,
-            AssetBundleExportJobId=export_response["AssetBundleExportJobId"],
-        )
-        if probe_export_response["JobStatus"] in [
-            "SUCCESSFUL",
-            "FAILED",
-        ]:
-            break
-        sleep(2)
+    # Import assets
+    import_assets(qs_target, asset_data)
 
-    r = httpx.get(probe_export_response["DownloadUrl"])
-    with open(
-        ROOT_DIR.joinpath(f"data/asset-bundle/assetbundle-{asset_export_job_name}.qs"),
-        "wb",
-    ) as f:
-        f.write(r.content)
+    # Migrate folders and permissions
+    migrate_folders_and_permissions(qs_source, qs_target)
 
-    ic(probe_export_response)
-    ic(export_response)
-
-    import_response = qs_target.start_asset_bundle_import_job(
-        AwsAccountId=AWS_ACCOUNT_ID,
-        AssetBundleImportJobId=asset_import_job_name,
-        AssetBundleImportSource={"Body": r.content},
-    )
-
-    while True:
-        probe_import_response = qs_target.describe_asset_bundle_import_job(
-            AwsAccountId=AWS_ACCOUNT_ID,
-            AssetBundleImportJobId=import_response["AssetBundleImportJobId"],
-        )
-        if probe_import_response["JobStatus"] in [
-            "SUCCESSFUL",
-            "FAILED",
-            "FAILED_ROLLBACK_COMPLETED",
-            "FAILED_ROLLBACK_ERROR",
-        ]:
-            break
-        sleep(2)
-
-    ic(probe_import_response)
-    ic(import_response)
+    logger.info("Quicksight migration completed successfully")
 
 
 if __name__ == "__main__":
