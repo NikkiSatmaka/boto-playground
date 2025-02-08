@@ -1,37 +1,27 @@
 from functools import partial
 from operator import itemgetter
-from pathlib import Path
+from typing import Any, Dict, Iterable, Iterator, Mapping
 
 import boto3
 import typer
 from dotenv import load_dotenv
 from loguru import logger
+from mypy_boto3_glue.client import GlueClient
 
 load_dotenv()
 
 AWS_ACCOUNT_ID = boto3.client("sts").get_caller_identity()["Account"]
 
-ROOT_DIR = Path(__file__).parent
-
 app = typer.Typer()
 
-datasource_name = "data-test12345"
-dataset_name = "netflix_data"
-analysis_name = "netflix_data analysis-test12345"
-dashboard_name = "netflix_data_dashboard-test12345"
-asset_export_job_name = "test-1"
-asset_import_job_name = "test-1"
 
-type_getter = itemgetter("Type")
-name_getter = itemgetter("Name")
-arn_getter = itemgetter("Arn")
-
-
-def filter_dict_keys(dict_object, filter_dict_keys):
+def filter_dict_keys(
+    dict_object: Mapping[str, Any], filter_dict_keys: Iterable
+) -> Dict:
     return {k: v for k, v in dict_object.items() if k in filter_dict_keys}
 
 
-def get_db_generator(glue_client):
+def get_glue_databases(glue_client: GlueClient) -> Iterator[Dict[str, Any]]:
     db_keys = [
         "Name",
         "Description",
@@ -43,11 +33,13 @@ def get_db_generator(glue_client):
     ]
     return map(
         partial(filter_dict_keys, filter_dict_keys=db_keys),
-        glue_client.get_databases()["DatabaseList"],
+        glue_client.get_databases().get("DatabaseList", []),
     )
 
 
-def get_table_generator(glue_client, database_name):
+def get_glue_tables(
+    glue_client: GlueClient, database_name: str
+) -> Iterator[Dict[str, Any]]:
     table_keys = [
         "Name",
         "Description",
@@ -66,11 +58,11 @@ def get_table_generator(glue_client, database_name):
     ]
     return map(
         partial(filter_dict_keys, filter_dict_keys=table_keys),
-        glue_client.get_tables(DatabaseName=database_name)["TableList"],
+        glue_client.get_tables(DatabaseName=database_name).get("TableList", []),
     )
 
 
-def get_crawler_generator(glue_client):
+def get_glue_crawlers(glue_client: GlueClient) -> Iterator[Dict[str, Any]]:
     crawler_keys = [
         "Name",
         "Role",
@@ -89,11 +81,11 @@ def get_crawler_generator(glue_client):
     ]
     return map(
         partial(filter_dict_keys, filter_dict_keys=crawler_keys),
-        glue_client.get_crawlers()["Crawlers"],
+        glue_client.get_crawlers().get("Crawlers", []),
     )
 
 
-def get_classifier_generator(glue_client):
+def get_glue_classifiers(glue_client: GlueClient) -> Iterator[Dict[str, Any]]:
     classifier_keys = [
         "GrokClassifier",
         "XMLClassifier",
@@ -102,15 +94,17 @@ def get_classifier_generator(glue_client):
     ]
     return map(
         partial(filter_dict_keys, filter_dict_keys=classifier_keys),
-        glue_client.get_classifiers()["Classifiers"],
+        glue_client.get_classifiers().get("Classifiers", []),
     )
 
 
-def get_db_table_generator(glue_client, db_list):
-    return {db: list(get_table_generator(glue_client, db)) for db in db_list}
+def get_glue_db_tables(
+    glue_client: GlueClient, db_list: Iterable
+) -> Dict[str, Iterable[Dict[str, Any]]]:
+    return {db: list(get_glue_tables(glue_client, db)) for db in db_list}
 
 
-def migrate_glue_db(glue_client, db_to_migrate):
+def migrate_glue_db(glue_client: GlueClient, db_to_migrate: Iterable):
     for i in db_to_migrate:
         try:
             glue_client.create_database(DatabaseInput=i)
@@ -118,7 +112,7 @@ def migrate_glue_db(glue_client, db_to_migrate):
             logger.error(f"{i['Name']}: {e}")
 
 
-def migrate_glue_tables(glue_client, db_tables_to_migrate):
+def migrate_glue_tables(glue_client: GlueClient, db_tables_to_migrate: Dict):
     for db, tables in db_tables_to_migrate.items():
         for table in tables:
             try:
@@ -127,7 +121,7 @@ def migrate_glue_tables(glue_client, db_tables_to_migrate):
                 logger.error(f"{table['Name']}: {e}")
 
 
-def migrate_glue_crawler(glue_client, crawler_to_migrate):
+def migrate_glue_crawler(glue_client: GlueClient, crawler_to_migrate: Iterable):
     for i in crawler_to_migrate:
         try:
             glue_client.create_crawler(**i)
@@ -135,7 +129,7 @@ def migrate_glue_crawler(glue_client, crawler_to_migrate):
             logger.error(f"{i['Name']}: {e}")
 
 
-def migrate_glue_classifier(glue_client, classifier_to_migrate):
+def migrate_glue_classifier(glue_client: GlueClient, classifier_to_migrate: Iterable):
     for i in classifier_to_migrate:
         try:
             glue_client.create_classifier(**i)
@@ -152,12 +146,12 @@ def main(source_region: str, target_region: str):
     glue_source = session.client("glue", region_name=source_region)
     glue_target = session.client("glue", region_name=target_region)
 
-    db_to_migrate = list(get_db_generator(glue_source))
-    db_tables_to_migrate = get_db_table_generator(
+    db_to_migrate = list(get_glue_databases(glue_source))
+    db_tables_to_migrate = get_glue_db_tables(
         glue_source, map(itemgetter("Name"), db_to_migrate)
     )
-    crawler_to_migrate = list(get_crawler_generator(glue_source))
-    classifier_to_migrate = list(get_classifier_generator(glue_source))
+    crawler_to_migrate = list(get_glue_crawlers(glue_source))
+    classifier_to_migrate = list(get_glue_classifiers(glue_source))
 
     migrate_glue_db(glue_target, db_to_migrate)
     migrate_glue_tables(glue_target, db_tables_to_migrate)
