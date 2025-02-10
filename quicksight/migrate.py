@@ -15,18 +15,12 @@ load_dotenv()
 
 AWS_ACCOUNT_ID = boto3.client("sts").get_caller_identity()["Account"]
 ROOT_DIR = Path(__file__).parent.absolute()
+QS_EXPORT_DIR = ROOT_DIR.joinpath("data")
 
 app = typer.Typer()
 
 EXPORT_JOB_NAME = "quicksight-export"
 IMPORT_JOB_NAME = "quicksight-import"
-
-datasource_name = "data-test12345"
-dataset_name = "netflix_data"
-analysis_name = "netflix_data analysis-test12345"
-dashboard_name = "netflix_data_dashboard-test12345"
-asset_export_job_name = "test-1"
-asset_import_job_name = "test-1"
 
 type_getter = itemgetter("Type")
 name_getter = itemgetter("Name")
@@ -35,15 +29,31 @@ arn_getter = itemgetter("Arn")
 
 def get_qs_all_assets(qs_client: QuickSightClient) -> Dict:
     """Retrieve all QuickSight assets from the given region."""
+
+    def filter_successful(assets: Iterable) -> Iterable:
+        successful_assets = []
+        for asset in assets:
+            asset_status = asset.get("status", "")
+            if asset_status:
+                successful_assets.append(asset)
+                continue
+            if asset_status in ("CREATION_SUCCESSFUL", "UPDATE_SUCCESSFUL"):
+                successful_assets.append(asset)
+        return successful_assets
+
     return {
-        "data_sources": qs_client.list_data_sources(AwsAccountId=AWS_ACCOUNT_ID).get(
-            "DataSources", []
+        "data_sources": filter_successful(
+            qs_client.list_data_sources(AwsAccountId=AWS_ACCOUNT_ID).get(
+                "DataSources", []
+            )
         ),
         "data_sets": qs_client.list_data_sets(AwsAccountId=AWS_ACCOUNT_ID).get(
             "DataSetSummaries", []
         ),
-        "analyses": qs_client.list_analyses(AwsAccountId=AWS_ACCOUNT_ID).get(
-            "AnalysisSummaryList", []
+        "analyses": filter_successful(
+            qs_client.list_analyses(AwsAccountId=AWS_ACCOUNT_ID).get(
+                "AnalysisSummaryList", []
+            )
         ),
         "dashboards": qs_client.list_dashboards(AwsAccountId=AWS_ACCOUNT_ID).get(
             "DashboardSummaryList", []
@@ -231,31 +241,6 @@ def get_arns(data_sources, criteria):
     return get_keys(data_sources, arn_getter, criteria)
 
 
-def data_source_criteria(data_source):
-    return (
-        type_getter(data_source) == "ATHENA"
-        and name_getter(data_source) == datasource_name
-    )
-
-
-def data_set_criteria(data_set):
-    return (
-        itemgetter("ImportMode")(data_set) == "SPICE"
-        and name_getter(data_set) == dataset_name
-    )
-
-
-def analysis_criteria(analysis):
-    return (
-        # itemgetter("ImportMode")(analysis) == "SPICE"
-        name_getter(analysis) == analysis_name
-    )
-
-
-def dashboard_criteria(dashboard):
-    return name_getter(dashboard) == dashboard_name
-
-
 @app.command()
 def main(source_region: str, target_region: str):
     session = boto3.Session()
@@ -267,85 +252,29 @@ def main(source_region: str, target_region: str):
 
     # Get assets
     source_assets = get_qs_all_assets(qs_source)
-    target_assets = get_qs_all_assets(qs_target)
 
     source_data_sources = source_assets["data_sources"]
     source_data_sets = source_assets["data_sets"]
-    source_analysis = source_assets["analyses"]
+    source_analyses = source_assets["analyses"]
     source_dashboards = source_assets["dashboards"]
-
-    target_data_sources = target_assets["data_sources"]
-    target_data_sets = target_assets["data_sets"]
-    target_analysis = target_assets["analyses"]
-    target_dashboards = target_assets["dashboards"]
 
     source_data_source_arns = get_arns(source_data_sources, lambda x: x)
     source_data_set_arns = get_arns(source_data_sets, lambda x: x)
-    source_analysis_arns = get_arns(source_analysis, lambda x: x)
+    source_analyses_arns = get_arns(source_analyses, lambda x: x)
     source_dashboard_arns = get_arns(source_dashboards, lambda x: x)
-
-    source_data_source_ids = get_keys(
-        source_data_sources, itemgetter("DataSourceId"), lambda x: x
-    )
-    source_data_set_ids = get_keys(
-        source_data_sets, itemgetter("DataSetId"), lambda x: x
-    )
-    source_analysis_ids = get_keys(
-        source_analysis, itemgetter("AnalysisId"), lambda x: x
-    )
-    source_dashboard_ids = get_keys(
-        source_dashboards, itemgetter("DashboardId"), lambda x: x
-    )
-
-    target_data_source_arns = get_arns(target_data_sources, lambda x: x)
-    target_data_set_arns = get_arns(target_data_sets, lambda x: x)
-    target_analysis_arns = get_arns(target_analysis, lambda x: x)
-    target_dashboard_arns = get_arns(target_dashboards, lambda x: x)
-
-    target_data_source_ids = get_keys(
-        target_data_sources, itemgetter("DataSourceId"), lambda x: x
-    )
-    target_data_set_ids = get_keys(
-        target_data_sets, itemgetter("DataSetId"), lambda x: x
-    )
-    target_analysis_ids = get_keys(
-        target_analysis, itemgetter("AnalysisId"), lambda x: x
-    )
-    target_dashboard_ids = get_keys(
-        target_dashboards, itemgetter("DashboardId"), lambda x: x
-    )
-
-    ic(source_data_source_arns)
-    ic(source_data_set_arns)
-    ic(source_analysis_arns)
-    ic(source_dashboard_arns)
-
-    ic(source_data_source_ids)
-    ic(source_data_set_ids)
-    ic(source_analysis_ids)
-    ic(source_dashboard_ids)
-
-    ic(target_data_source_arns)
-    ic(target_data_set_arns)
-    ic(target_analysis_arns)
-    ic(target_dashboard_arns)
-
-    ic(target_data_source_ids)
-    ic(target_data_set_ids)
-    ic(target_analysis_ids)
-    ic(target_dashboard_ids)
 
     # Export assets
     asset_data = export_assets(
         qs_source,
         [
             *source_dashboard_arns,
-            *source_analysis_arns,
+            *source_analyses_arns,
             *source_data_set_arns,
             *source_data_source_arns,
         ],
     )
-    with open(ROOT_DIR.joinpath("data/quicksight_asset_bundle.qs"), "wb") as f:
+    QS_EXPORT_DIR.mkdir(exist_ok=True)
+    with open(QS_EXPORT_DIR.joinpath("quicksight_asset_bundle.qs"), "wb") as f:
         f.write(asset_data)
 
     # Import assets
