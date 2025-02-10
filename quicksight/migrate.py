@@ -1,7 +1,7 @@
 from operator import itemgetter
 from pathlib import Path
 from time import sleep
-from typing import Any, Dict, Iterable, Iterator, List, Mapping, Sequence
+from typing import Any, Dict, Iterable, Iterator, List, Literal, Mapping, Sequence
 
 import boto3
 import httpx
@@ -139,39 +139,86 @@ def import_assets(qs_client: QuickSightClient, asset_data: bytes):
     logger.info("Quicksight asset import completed successfully")
 
 
-def migrate_folders_and_permissions(
+def get_qs_folder_ids(qs_client: QuickSightClient) -> Iterable[str]:
+    return map(
+        itemgetter("FolderId"),
+        qs_client.list_folders(AwsAccountId=AWS_ACCOUNT_ID).get(
+            "FolderSummaryList", []
+        ),
+    )
+
+
+def get_qs_folders_sorted(
+    qs_client: QuickSightClient, reverse: bool = False
+) -> Iterable:
+    folder_ids = get_qs_folder_ids(qs_client)
+    qs_folders = map(
+        lambda x: qs_client.describe_folder(
+            AwsAccountId=AWS_ACCOUNT_ID, FolderId=x
+        ).get("Folder", []),
+        folder_ids,
+    )
+    return sorted(
+        qs_folders, key=lambda x: len(x.get("FolderPath", [])), reverse=reverse
+    )
+
+
+def migrate_folders_and_members(
     qs_source: QuickSightClient, qs_target: QuickSightClient
 ):
     """Migrate QuickSight folders and their permissions."""
-    logger.info("Migrating folders and permissions...")
-    source_folders = qs_source.list_folders(AwsAccountId=AWS_ACCOUNT_ID).get(
-        "FolderSummaryList", []
-    )
 
-    for folder in source_folders:
-        folder_name = folder.get("Name", "")
+    def get_member_type_from_arn(
+        arn: str,
+    ) -> Literal["DASHBOARD", "ANALYSIS", "DATASET", "DATASOURCE", "TOPIC"]:
+        return arn.split(":")[-1].split("/")[0].upper()  # type: ignore
+
+    logger.info("Migrating folders and permissions...")
+
+    qs_folders = get_qs_folders_sorted(qs_source)
+
+    for folder in qs_folders:
         folder_id = folder.get("FolderId", "")
-        if not folder_name:
-            continue
+        folder_name = folder.get("Name", "")
+        folder_path = folder.get("FolderPath", [])
+        folder_parent_arn = folder_path[-1] if folder_path else ""
+
+        # Copy folder permissions
+        permissions = qs_source.describe_folder_resolved_permissions(
+            AwsAccountId=AWS_ACCOUNT_ID, FolderId=folder_id
+        ).get("Permissions", [])
+        folder_members = qs_source.list_folder_members(
+            AwsAccountId=AWS_ACCOUNT_ID, FolderId=folder_id
+        ).get("FolderMemberList", [])
+
         try:
             qs_target.create_folder(
                 AwsAccountId=AWS_ACCOUNT_ID,
                 FolderId=folder_id,
                 Name=folder_name,
                 FolderType=folder.get("FolderType", "RESTRICTED"),
+                ParentFolderArn=folder_parent_arn,
+                Permissions=permissions,
             )
         except (Exception, qs_target.exceptions.ResourceExistsException) as e:
-            logger.warning(f"Folder {folder_name} already axists: {e}")
+            logger.warning(f"Folder {folder_name} already exists: {e}")
 
-        # Copy folder permissions
-        permissions = qs_source.describe_folder_permissions(
-            AwsAccountId=AWS_ACCOUNT_ID, FolderId=folder_id
-        )
-        qs_target.update_folder_permissions(
-            AwsAccountId=AWS_ACCOUNT_ID,
-            FolderId=folder_id,
-            GrantPermissions=permissions.get("Permissions", []),
-        )
+        for folder_member in folder_members:
+            member_id = folder_member.get("MemberId", "")
+            member_arn = folder_member.get("MemberArn", "")
+            member_type = get_member_type_from_arn(member_arn)
+
+            try:
+                qs_target.create_folder_membership(
+                    AwsAccountId=AWS_ACCOUNT_ID,
+                    FolderId=folder_id,
+                    MemberId=member_id,
+                    MemberType=member_type,
+                )
+            except (Exception, qs_target.exceptions.ResourceExistsException) as e:
+                logger.warning(
+                    f"Member {member_id} already exists in folder {folder_name}: {e}"
+                )
 
     logger.info("Folders and permissions migrated successfully.")
 
@@ -222,14 +269,14 @@ def main(source_region: str, target_region: str):
     source_assets = get_qs_all_assets(qs_source)
     target_assets = get_qs_all_assets(qs_target)
 
-    source_data_sources = source_assets["data_source"]
+    source_data_sources = source_assets["data_sources"]
     source_data_sets = source_assets["data_sets"]
-    source_analysis = source_assets["analysis"]
+    source_analysis = source_assets["analyses"]
     source_dashboards = source_assets["dashboards"]
 
-    target_data_sources = target_assets["data_source"]
+    target_data_sources = target_assets["data_sources"]
     target_data_sets = target_assets["data_sets"]
-    target_analysis = target_assets["analysis"]
+    target_analysis = target_assets["analyses"]
     target_dashboards = target_assets["dashboards"]
 
     source_data_source_arns = get_arns(source_data_sources, lambda x: x)
@@ -305,7 +352,7 @@ def main(source_region: str, target_region: str):
     import_assets(qs_target, asset_data)
 
     # Migrate folders and permissions
-    migrate_folders_and_permissions(qs_source, qs_target)
+    migrate_folders_and_members(qs_source, qs_target)
 
     logger.info("Quicksight migration completed successfully")
 
