@@ -1,13 +1,13 @@
+from functools import partial
 from operator import itemgetter
 from pathlib import Path
 from time import sleep
-from typing import Any, Dict, Iterable, Iterator, List, Literal, Mapping, Sequence
+from typing import Any, Iterable, Literal, Mapping, Sequence
 
 import boto3
 import httpx
 import typer
 from dotenv import load_dotenv
-from icecream import ic
 from loguru import logger
 from mypy_boto3_quicksight import QuickSightClient
 
@@ -27,22 +27,22 @@ name_getter = itemgetter("Name")
 arn_getter = itemgetter("Arn")
 
 
-def get_qs_all_assets(qs_client: QuickSightClient) -> Dict:
+def get_qs_all_assets(qs_client: QuickSightClient) -> Mapping:
     """Retrieve all QuickSight assets from the given region."""
 
     def filter_successful(assets: Iterable) -> Iterable:
-        successful_assets = []
-        for asset in assets:
-            asset_status = asset.get("status", "")
-            if asset_status:
-                successful_assets.append(asset)
-                continue
-            if asset_status in ("CREATION_SUCCESSFUL", "UPDATE_SUCCESSFUL"):
-                successful_assets.append(asset)
-        return successful_assets
+        return list(
+            filter(
+                lambda x: x["Status"] in ("CREATION_SUCCESSFUL", "UPDATE_SUCCESSFUL"),
+                assets,
+            )
+        )
+
+    def filter_data_sources(assets: Iterable) -> Iterable:
+        return list(filter(lambda x: "DataSourceParameters" in x, assets))
 
     return {
-        "data_sources": filter_successful(
+        "data_sources": filter_data_sources(
             qs_client.list_data_sources(AwsAccountId=AWS_ACCOUNT_ID).get(
                 "DataSources", []
             )
@@ -74,7 +74,7 @@ def get_qs_refresh_schedules(
 
 def get_qs_dataset_refresh_schedules(
     qs_client: QuickSightClient, dataset_id_list: Sequence
-) -> Dict[str, Sequence[Mapping[str, Any]]]:
+) -> Mapping[str, Sequence[Mapping[str, Any]]]:
     """Retrieve all Glue tables for a list of databases."""
     return {
         dataset_id: get_qs_refresh_schedules(qs_client, dataset_id)
@@ -158,14 +158,22 @@ def get_qs_folder_ids(qs_client: QuickSightClient) -> Iterable[str]:
     )
 
 
+def get_qs_folder_with_permission(qs_client: QuickSightClient, folder_id):
+    folder = qs_client.describe_folder(
+        AwsAccountId=AWS_ACCOUNT_ID, FolderId=folder_id
+    ).get("Folder", [])
+    permissions = qs_client.describe_folder_resolved_permissions(
+        AwsAccountId=AWS_ACCOUNT_ID, FolderId=folder_id
+    ).get("Permissions", [])
+    return {**folder, "Permissions": permissions}
+
+
 def get_qs_folders_sorted(
     qs_client: QuickSightClient, reverse: bool = False
 ) -> Iterable:
     folder_ids = get_qs_folder_ids(qs_client)
     qs_folders = map(
-        lambda x: qs_client.describe_folder(
-            AwsAccountId=AWS_ACCOUNT_ID, FolderId=x
-        ).get("Folder", []),
+        partial(get_qs_folder_with_permission, qs_client),
         folder_ids,
     )
     return sorted(
@@ -174,19 +182,28 @@ def get_qs_folders_sorted(
 
 
 def create_qs_folder_helper(qs_client: QuickSightClient, folder):
+    def get_id_from_arn(arn: str) -> str:
+        return arn.split(":")[-1].split("/")[-1]
+
     folder_id = folder.get("FolderId", "")
     folder_name = folder.get("Name", "")
-    folder_path = folder.get("FolderPath", [])
-    folder_parent_arn = folder_path[-1] if folder_path else ""
-    permissions = qs_client.describe_folder_resolved_permissions(
-        AwsAccountId=AWS_ACCOUNT_ID, FolderId=folder_id
-    ).get("Permissions", [])
-    if folder_parent_arn:
+    folder_type = folder.get("FolderType", "RESTRICTED")
+    permissions = folder.get("Permissions", [])
+    if folder_path := folder.get("FolderPath", []):
+        folder_parent_arn = folder_path[-1] if folder_path else ""
+        folder_parent_id = get_id_from_arn(folder_parent_arn)
+        folder_parent_arn = (
+            qs_client.describe_folder(
+                AwsAccountId=AWS_ACCOUNT_ID, FolderId=folder_parent_id
+            )
+            .get("Folder", {})
+            .get("Arn", "")
+        )
         qs_client.create_folder(
             AwsAccountId=AWS_ACCOUNT_ID,
             FolderId=folder_id,
             Name=folder_name,
-            FolderType=folder.get("FolderType", "RESTRICTED"),
+            FolderType=folder_type,
             ParentFolderArn=folder_parent_arn,
             Permissions=permissions,
         )
@@ -195,7 +212,7 @@ def create_qs_folder_helper(qs_client: QuickSightClient, folder):
             AwsAccountId=AWS_ACCOUNT_ID,
             FolderId=folder_id,
             Name=folder_name,
-            FolderType=folder.get("FolderType", "RESTRICTED"),
+            FolderType=folder_type,
             Permissions=permissions,
         )
 
@@ -210,7 +227,7 @@ def migrate_folders_and_members(
     ) -> Literal["DASHBOARD", "ANALYSIS", "DATASET", "DATASOURCE", "TOPIC"]:
         return arn.split(":")[-1].split("/")[0].upper()  # type: ignore
 
-    logger.info("Migrating folders and permissions...")
+    logger.info("Migrating folders and members...")
 
     qs_folders = get_qs_folders_sorted(qs_source)
 
@@ -223,8 +240,9 @@ def migrate_folders_and_members(
         ).get("FolderMemberList", [])
 
         try:
+            logger.info(f"Creating folder: {folder_name}")
             create_qs_folder_helper(qs_target, folder)
-        except (Exception, qs_target.exceptions.ResourceExistsException) as e:
+        except qs_target.exceptions.ResourceExistsException as e:
             logger.warning(f"Folder {folder_name} already exists: {e}")
 
         for folder_member in folder_members:
@@ -233,13 +251,14 @@ def migrate_folders_and_members(
             member_type = get_member_type_from_arn(member_arn)
 
             try:
+                logger.info(f"Creating member: {member_id} for folder {folder_name}")
                 qs_target.create_folder_membership(
                     AwsAccountId=AWS_ACCOUNT_ID,
                     FolderId=folder_id,
                     MemberId=member_id,
                     MemberType=member_type,
                 )
-            except (Exception, qs_target.exceptions.ResourceExistsException) as e:
+            except qs_target.exceptions.ResourceExistsException as e:
                 logger.warning(
                     f"Member {member_id} already exists in folder {folder_name}: {e}"
                 )
