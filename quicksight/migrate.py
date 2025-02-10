@@ -219,8 +219,8 @@ def main(source_region: str, target_region: str):
     qs_target = session.client("quicksight", region_name=target_region)
 
     # Get assets
-    source_assets = get_all_assets(qs_source)
-    target_assets = get_all_assets(qs_target)
+    source_assets = get_qs_all_assets(qs_source)
+    target_assets = get_qs_all_assets(qs_target)
 
     source_data_sources = source_assets["data_source"]
     source_data_sets = source_assets["data_sets"]
