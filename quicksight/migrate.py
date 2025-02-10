@@ -173,6 +173,33 @@ def get_qs_folders_sorted(
     )
 
 
+def create_qs_folder_helper(qs_client: QuickSightClient, folder):
+    folder_id = folder.get("FolderId", "")
+    folder_name = folder.get("Name", "")
+    folder_path = folder.get("FolderPath", [])
+    folder_parent_arn = folder_path[-1] if folder_path else ""
+    permissions = qs_client.describe_folder_resolved_permissions(
+        AwsAccountId=AWS_ACCOUNT_ID, FolderId=folder_id
+    ).get("Permissions", [])
+    if folder_parent_arn:
+        qs_client.create_folder(
+            AwsAccountId=AWS_ACCOUNT_ID,
+            FolderId=folder_id,
+            Name=folder_name,
+            FolderType=folder.get("FolderType", "RESTRICTED"),
+            ParentFolderArn=folder_parent_arn,
+            Permissions=permissions,
+        )
+    else:
+        qs_client.create_folder(
+            AwsAccountId=AWS_ACCOUNT_ID,
+            FolderId=folder_id,
+            Name=folder_name,
+            FolderType=folder.get("FolderType", "RESTRICTED"),
+            Permissions=permissions,
+        )
+
+
 def migrate_folders_and_members(
     qs_source: QuickSightClient, qs_target: QuickSightClient
 ):
@@ -190,26 +217,13 @@ def migrate_folders_and_members(
     for folder in qs_folders:
         folder_id = folder.get("FolderId", "")
         folder_name = folder.get("Name", "")
-        folder_path = folder.get("FolderPath", [])
-        folder_parent_arn = folder_path[-1] if folder_path else ""
 
-        # Copy folder permissions
-        permissions = qs_source.describe_folder_resolved_permissions(
-            AwsAccountId=AWS_ACCOUNT_ID, FolderId=folder_id
-        ).get("Permissions", [])
         folder_members = qs_source.list_folder_members(
             AwsAccountId=AWS_ACCOUNT_ID, FolderId=folder_id
         ).get("FolderMemberList", [])
 
         try:
-            qs_target.create_folder(
-                AwsAccountId=AWS_ACCOUNT_ID,
-                FolderId=folder_id,
-                Name=folder_name,
-                FolderType=folder.get("FolderType", "RESTRICTED"),
-                ParentFolderArn=folder_parent_arn,
-                Permissions=permissions,
-            )
+            create_qs_folder_helper(qs_target, folder)
         except (Exception, qs_target.exceptions.ResourceExistsException) as e:
             logger.warning(f"Folder {folder_name} already exists: {e}")
 
