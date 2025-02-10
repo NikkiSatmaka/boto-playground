@@ -1,6 +1,6 @@
 from functools import partial
 from operator import itemgetter
-from typing import Any, Dict, Iterable, Iterator, Mapping
+from typing import Any, Iterable, Iterator, Mapping
 
 import boto3
 import typer
@@ -17,12 +17,12 @@ app = typer.Typer()
 
 def filter_dict_keys(
     dict_object: Mapping[str, Any], filter_dict_keys: Iterable
-) -> Dict:
+) -> Mapping:
     """Filter a dictionary to retain only specified keys."""
     return {k: v for k, v in dict_object.items() if k in filter_dict_keys}
 
 
-def get_glue_databases(glue_client: GlueClient) -> Iterator[Dict[str, Any]]:
+def get_glue_databases(glue_client: GlueClient) -> Iterator[Mapping[str, Any]]:
     """Retrieve Glue databases with selected attributes."""
     db_keys = [
         "Name",
@@ -41,7 +41,7 @@ def get_glue_databases(glue_client: GlueClient) -> Iterator[Dict[str, Any]]:
 
 def get_glue_tables(
     glue_client: GlueClient, database_name: str
-) -> Iterator[Dict[str, Any]]:
+) -> Iterator[Mapping[str, Any]]:
     """Retrieve Glue tables for a given database with selected attributes."""
     table_keys = [
         "Name",
@@ -65,7 +65,7 @@ def get_glue_tables(
     )
 
 
-def get_glue_crawlers(glue_client: GlueClient) -> Iterator[Dict[str, Any]]:
+def get_glue_crawlers(glue_client: GlueClient) -> Iterator[Mapping[str, Any]]:
     """Retrieve Glue crawlers with selected attributes."""
     crawler_keys = [
         "Name",
@@ -89,7 +89,7 @@ def get_glue_crawlers(glue_client: GlueClient) -> Iterator[Dict[str, Any]]:
     )
 
 
-def get_glue_classifiers(glue_client: GlueClient) -> Iterator[Dict[str, Any]]:
+def get_glue_classifiers(glue_client: GlueClient) -> Iterator[Mapping[str, Any]]:
     """Retrieve Glue classifiers with selected attributes."""
     classifier_keys = [
         "GrokClassifier",
@@ -105,7 +105,7 @@ def get_glue_classifiers(glue_client: GlueClient) -> Iterator[Dict[str, Any]]:
 
 def get_glue_db_tables(
     glue_client: GlueClient, db_list: Iterable
-) -> Dict[str, Iterable[Dict[str, Any]]]:
+) -> Mapping[str, Iterable[Mapping[str, Any]]]:
     """Retrieve all Glue tables for a list of databases."""
     return {db: list(get_glue_tables(glue_client, db)) for db in db_list}
 
@@ -119,7 +119,7 @@ def migrate_glue_db(glue_client: GlueClient, db_to_migrate: Iterable):
             logger.warning(f"Database '{i['Name']}' already exists.")
 
 
-def migrate_glue_tables(glue_client: GlueClient, db_tables_to_migrate: Dict):
+def migrate_glue_tables(glue_client: GlueClient, db_tables_to_migrate: Mapping):
     """Migrate Glue tables."""
     for db, tables in db_tables_to_migrate.items():
         for table in tables:
