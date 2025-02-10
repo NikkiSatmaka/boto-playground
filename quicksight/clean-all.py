@@ -85,6 +85,7 @@ def delete_quicksight_resources(qs_client: QuickSightClient):
             AwsAccountId=AWS_ACCOUNT_ID, FolderId=i
         )["FolderMemberList"]
         for j in folder_members:
+            logger.debug(f"Deleting Member: {j} from folder {i}")
             qs_client.delete_folder_membership(
                 AwsAccountId=AWS_ACCOUNT_ID,
                 FolderId=i,
