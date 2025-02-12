@@ -41,26 +41,26 @@ def get_qs_all_assets(qs_client: QuickSightClient) -> Mapping:
     def filter_data_sources(assets: Iterable) -> Iterable:
         return list(filter(lambda x: "DataSourceParameters" in x, assets))
 
+    data_sources = filter_data_sources(
+        qs_client.list_data_sources(AwsAccountId=AWS_ACCOUNT_ID)["DataSources"]
+    )
+    data_sets = qs_client.list_data_sets(AwsAccountId=AWS_ACCOUNT_ID)[
+        "DataSetSummaries"
+    ]
+    analyses = filter_successful(
+        qs_client.list_analyses(AwsAccountId=AWS_ACCOUNT_ID)["AnalysisSummaryList"]
+    )
+    dashboards = qs_client.list_dashboards(AwsAccountId=AWS_ACCOUNT_ID)[
+        "DashboardSummaryList"
+    ]
+    folders = qs_client.list_folders(AwsAccountId=AWS_ACCOUNT_ID)["FolderSummaryList"]
+
     return {
-        "data_sources": filter_data_sources(
-            qs_client.list_data_sources(AwsAccountId=AWS_ACCOUNT_ID).get(
-                "DataSources", []
-            )
-        ),
-        "data_sets": qs_client.list_data_sets(AwsAccountId=AWS_ACCOUNT_ID).get(
-            "DataSetSummaries", []
-        ),
-        "analyses": filter_successful(
-            qs_client.list_analyses(AwsAccountId=AWS_ACCOUNT_ID).get(
-                "AnalysisSummaryList", []
-            )
-        ),
-        "dashboards": qs_client.list_dashboards(AwsAccountId=AWS_ACCOUNT_ID).get(
-            "DashboardSummaryList", []
-        ),
-        "folders": qs_client.list_folders(AwsAccountId=AWS_ACCOUNT_ID).get(
-            "FolderSummaryList", []
-        ),
+        "data_sources": data_sources,
+        "data_sets": data_sets,
+        "analyses": analyses,
+        "dashboards": dashboards,
+        "folders": folders,
     }
 
 
