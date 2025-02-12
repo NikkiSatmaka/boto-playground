@@ -108,12 +108,12 @@ def export_assets(qs_client: QuickSightClient, resource_arns: Sequence[str]) -> 
         sleep(2)
 
     if job_status["JobStatus"] == "FAILED":
-        raise Exception("Quicksight asset export failed")
+        raise Exception("QuickSight asset export failed")
 
     # Download asset bundle
     asset_bundle_url = job_status.get("DownloadUrl", "")
     if not asset_bundle_url:
-        raise Exception("Quicksight asset export failed")
+        raise Exception("QuickSight asset export failed")
     with httpx.Client() as client:
         r = client.get(asset_bundle_url)
     return r.content
@@ -144,9 +144,9 @@ def import_assets(qs_client: QuickSightClient, asset_data: bytes):
         sleep(2)
 
     if job_status["JobStatus"] in ["FAILED", "FAILED_ROLLBACK_COMPLETED"]:
-        raise Exception("Quicksight asset import failed")
+        raise Exception("QuickSight asset import failed")
 
-    logger.info("Quicksight asset import completed successfully")
+    logger.info("QuickSight asset import completed successfully")
 
 
 def get_qs_folder_ids(qs_client: QuickSightClient) -> Iterable[str]:
@@ -284,6 +284,7 @@ def main(source_region: str, target_region: str):
     qs_target = session.client("quicksight", region_name=target_region)
 
     # Get assets
+    logger.info("Fetching QuickSight assets...")
     source_assets = get_qs_all_assets(qs_source)
 
     source_data_sources = source_assets["data_sources"]
@@ -316,7 +317,7 @@ def main(source_region: str, target_region: str):
     # Migrate folders and permissions
     migrate_folders_and_members(qs_source, qs_target)
 
-    logger.info("Quicksight migration completed successfully")
+    logger.info("QuickSight migration completed successfully")
 
 
 if __name__ == "__main__":

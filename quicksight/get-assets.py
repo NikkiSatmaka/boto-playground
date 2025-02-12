@@ -130,18 +130,19 @@ def main(region: str):
     qs_client = session.client("quicksight", region_name=region)
 
     # Get assets
+    logger.info("Fetching QuickSight assets...")
     assets = get_qs_all_assets(qs_client)
 
     QS_EXPORT_DIR.mkdir(exist_ok=True)
     with open(QS_EXPORT_DIR.joinpath(f"qs_list_assets-{region}.csv"), "w") as f:
-        f.write("asset_type, name")
+        f.write("asset_type,name")
         f.write("\n")
         for k, v in assets.items():
+            if not v:
+                continue
             for _ in v:
-                f.write(f"{k}, {_['Name']}")
+                f.write(f"{k},{_['Name']}")
                 f.write("\n")
-
-    logger.info("Quicksight migration completed successfully")
 
 
 if __name__ == "__main__":
