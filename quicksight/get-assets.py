@@ -30,28 +30,24 @@ def get_qs_all_assets(qs_client: QuickSightClient) -> Mapping:
     """Retrieve all QuickSight assets from the given region."""
 
     def filter_successful(assets: Iterable) -> Iterable:
-        successful_assets = []
-        for asset in assets:
-            asset_status = asset.get("Status", "")
-            if not asset_status:
-                successful_assets.append(asset)
-                continue
-            if asset_status in ("CREATION_SUCCESSFUL", "UPDATE_SUCCESSFUL"):
-                successful_assets.append(asset)
-        return successful_assets
+        return list(
+            filter(
+                lambda x: x["Status"] in ("CREATION_SUCCESSFUL", "UPDATE_SUCCESSFUL"),
+                assets,
+            )
+        )
 
-    data_sources = (
-        filter_successful(
-            qs_client.list_data_sources(AwsAccountId=AWS_ACCOUNT_ID)["DataSources"]
-        ),
+    def filter_data_sources(assets: Iterable) -> Iterable:
+        return list(filter(lambda x: "DataSourceParameters" in x, assets))
+
+    data_sources = filter_data_sources(
+        qs_client.list_data_sources(AwsAccountId=AWS_ACCOUNT_ID)["DataSources"]
     )
     data_sets = qs_client.list_data_sets(AwsAccountId=AWS_ACCOUNT_ID)[
         "DataSetSummaries"
     ]
-    analyses = (
-        filter_successful(
-            qs_client.list_analyses(AwsAccountId=AWS_ACCOUNT_ID)["AnalysisSummaryList"]
-        ),
+    analyses = filter_successful(
+        qs_client.list_analyses(AwsAccountId=AWS_ACCOUNT_ID)["AnalysisSummaryList"]
     )
     dashboards = qs_client.list_dashboards(AwsAccountId=AWS_ACCOUNT_ID)[
         "DashboardSummaryList"
@@ -136,9 +132,14 @@ def main(region: str):
     # Get assets
     assets = get_qs_all_assets(qs_client)
 
-    for k, v in assets.items():
-        ic(k)
-        ic(v)
+    QS_EXPORT_DIR.mkdir(exist_ok=True)
+    with open(QS_EXPORT_DIR.joinpath(f"qs_list_assets-{region}.csv"), "w") as f:
+        f.write("asset_type, name")
+        f.write("\n")
+        for k, v in assets.items():
+            for _ in v:
+                f.write(f"{k}, {_['Name']}")
+                f.write("\n")
 
     logger.info("Quicksight migration completed successfully")
 
