@@ -174,6 +174,7 @@ def migrate_glue_crawler(glue_client: GlueClient, crawler_to_migrate: Iterable):
     for i in crawler_to_migrate:
         try:
             glue_client.create_crawler(**i)
+            logger.info(f"Crawler '{i['Name']}' migrated successfully.")
         except glue_client.exceptions.AlreadyExistsException:
             logger.warning(f"Crawler '{i['Name']}' already exists.")
 
@@ -183,6 +184,9 @@ def migrate_glue_classifier(glue_client: GlueClient, classifier_to_migrate: Iter
     for i in classifier_to_migrate:
         try:
             glue_client.create_classifier(**i)
+            logger.info(
+                f"Classifier '{i[list(i.keys())[0]]['Name']}' migrated successfully."
+            )
         except glue_client.exceptions.AlreadyExistsException:
             logger.warning(
                 f"Classifier '{i[list(i.keys())[0]]['Name']}' already exists."
