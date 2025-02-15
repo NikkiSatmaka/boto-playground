@@ -212,8 +212,8 @@ def main(source_region: str, target_region: str):
     db_to_migrate = list(get_glue_databases(glue_source))
     db_names = list(map(itemgetter("Name"), db_to_migrate))
     db_tables_to_migrate = get_glue_db_tables(glue_source, db_names)
-    crawler_to_migrate = list(get_glue_crawlers(glue_source))
     classifier_to_migrate = list(get_glue_classifiers(glue_source))
+    crawler_to_migrate = list(get_glue_crawlers(glue_source))
 
     glue_resource_summary("Databases", db_to_migrate)
     for db, tables in db_tables_to_migrate.items():
