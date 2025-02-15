@@ -61,7 +61,10 @@ def get_glue_tables(
     ]
     return map(
         partial(filter_dict_keys, filter_dict_keys=table_keys),
-        glue_client.get_tables(DatabaseName=database_name).get("TableList", []),
+        glue_client.get_tables(
+            DatabaseName=database_name,
+            MaxResults=500,
+        ).get("TableList", []),
     )
 
 
