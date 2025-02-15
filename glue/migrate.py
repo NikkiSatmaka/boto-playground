@@ -91,16 +91,42 @@ def get_glue_crawlers(glue_client: GlueClient) -> Iterator[Mapping[str, Any]]:
 
 def get_glue_classifiers(glue_client: GlueClient) -> Iterator[Mapping[str, Any]]:
     """Retrieve Glue classifiers with selected attributes."""
-    classifier_keys = [
-        "GrokClassifier",
-        "XMLClassifier",
-        "JsonClassifier",
-        "CsvClassifier",
-    ]
-    return map(
-        partial(filter_dict_keys, filter_dict_keys=classifier_keys),
-        glue_client.get_classifiers().get("Classifiers", []),
-    )
+    classifier_keys = {
+        "GrokClassifier": [
+            "Classification",
+            "Name",
+            "GrokPattern",
+            "CustomPatterns",
+        ],
+        "XMLClassifier": [
+            "Classification",
+            "Name",
+            "RowTag",
+        ],
+        "JsonClassifier": [
+            "Name",
+            "JsonPath",
+        ],
+        "CsvClassifier": [
+            "Name",
+            "Delimiter",
+            "QuoteSymbol",
+            "ContainsHeader",
+            "Header",
+            "DisableValueTrimming",
+            "AllowSingleColumn",
+            "CustomDatatypeConfigured",
+            "CustomDatatypes",
+            "Serde",
+        ],
+    }
+    classifiers = glue_client.get_classifiers().get("Classifiers", [])
+    if not classifiers:
+        return classifiers
+    for k, v in classifiers[0].items():
+        if k not in classifier_keys:
+            continue
+        yield {k: filter_dict_keys(v, classifier_keys[k])}
 
 
 def get_glue_db_tables(
