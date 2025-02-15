@@ -1,7 +1,7 @@
 from functools import partial
 from operator import itemgetter
 from pathlib import Path
-from typing import Any, Iterable, Iterator, Mapping
+from typing import Any, Dict, Iterable, Iterator, Mapping
 
 import boto3
 import typer
@@ -27,7 +27,7 @@ def filter_dict_keys(
 
 
 def get_glue_databases(glue_client: GlueClient) -> Iterator[Mapping[str, Any]]:
-    """Retrieve Glue databases with selected attributes."""
+    """Retrieve Glue databases with pagination support."""
     db_keys = [
         "Name",
         "Description",
@@ -37,16 +37,16 @@ def get_glue_databases(glue_client: GlueClient) -> Iterator[Mapping[str, Any]]:
         "TargetDatabase",
         "FederatedDatabase",
     ]
-    return map(
-        partial(filter_dict_keys, filter_dict_keys=db_keys),
-        glue_client.get_databases().get("DatabaseList", []),
-    )
+    paginator = glue_client.get_paginator("get_databases")
+    for page in paginator.paginate():
+        for db in page.get("DatabaseList", []):
+            yield filter_dict_keys(db, db_keys)
 
 
 def get_glue_tables(
     glue_client: GlueClient, database_name: str
 ) -> Iterator[Mapping[str, Any]]:
-    """Retrieve Glue tables for a given database with selected attributes."""
+    """Retrieve Glue tables for a given database with pagination support."""
     table_keys = [
         "Name",
         "Description",
@@ -63,14 +63,14 @@ def get_glue_tables(
         "TargetTable",
         "ViewDefinition",
     ]
-    return map(
-        partial(filter_dict_keys, filter_dict_keys=table_keys),
-        glue_client.get_tables(DatabaseName=database_name).get("TableList", []),
-    )
+    paginator = glue_client.get_paginator("get_tables")
+    for page in paginator.paginate(DatabaseName=database_name):
+        for table in page.get("TableList", []):
+            yield filter_dict_keys(table, table_keys)
 
 
 def get_glue_crawlers(glue_client: GlueClient) -> Iterator[Mapping[str, Any]]:
-    """Retrieve Glue crawlers with selected attributes."""
+    """Retrieve Glue crawlers with pagination support."""
     crawler_keys = [
         "Name",
         "Role",
@@ -87,14 +87,22 @@ def get_glue_crawlers(glue_client: GlueClient) -> Iterator[Mapping[str, Any]]:
         "Configuration",
         "CrawlerSecurityConfiguration",
     ]
-    return map(
-        partial(filter_dict_keys, filter_dict_keys=crawler_keys),
-        glue_client.get_crawlers().get("Crawlers", []),
-    )
+    paginator = glue_client.get_paginator("get_crawlers")
+    for page in paginator.paginate():
+        for crawler in page.get("Crawlers", []):
+            output_crawler = filter_dict_keys(crawler, crawler_keys)
+            # Fix schedule type issue
+            if "Schedule" in output_crawler and isinstance(
+                output_crawler["Schedule"], Dict
+            ):
+                output_crawler["Schedule"] = output_crawler["Schedule"].get(
+                    "ScheduleExpression", ""
+                )
+            yield output_crawler
 
 
 def get_glue_classifiers(glue_client: GlueClient) -> Iterator[Mapping[str, Any]]:
-    """Retrieve Glue classifiers with selected attributes."""
+    """Retrieve Glue classifiers with pagination support."""
     classifier_keys = {
         "GrokClassifier": [
             "Classification",
@@ -124,13 +132,14 @@ def get_glue_classifiers(glue_client: GlueClient) -> Iterator[Mapping[str, Any]]
             "Serde",
         ],
     }
-    classifiers = glue_client.get_classifiers().get("Classifiers", [])
-    if not classifiers:
-        return classifiers
-    for k, v in classifiers[0].items():
-        if k not in classifier_keys:
-            continue
-        yield {k: filter_dict_keys(v, classifier_keys[k])}
+    paginator = glue_client.get_paginator("get_classifiers")
+    for page in paginator.paginate():
+        for classifier in page.get("Classifiers", []):
+            if not classifier:
+                continue
+            for k, v in classifier.items():
+                if k in classifier_keys:
+                    yield {k: filter_dict_keys(v, classifier_keys[k])}
 
 
 def get_glue_db_tables(
