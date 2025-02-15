@@ -183,8 +183,8 @@ def main(source_region: str, target_region: str):
     logger.info("Starting Glue migration process...")
     migrate_glue_db(glue_target, db_to_migrate)
     migrate_glue_tables(glue_target, db_tables_to_migrate)
-    migrate_glue_crawler(glue_target, crawler_to_migrate)
     migrate_glue_classifier(glue_target, classifier_to_migrate)
+    migrate_glue_crawler(glue_target, crawler_to_migrate)
 
     logger.info("Glue migration completed successfully.")
 
