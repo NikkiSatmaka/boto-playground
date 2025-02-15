@@ -184,7 +184,9 @@ def migrate_glue_classifier(glue_client: GlueClient, classifier_to_migrate: Iter
         try:
             glue_client.create_classifier(**i)
         except glue_client.exceptions.AlreadyExistsException:
-            logger.warning(f"Classifier '{i['Name']}' already exists.")
+            logger.warning(
+                f"Classifier '{i[list(i.keys())[0]]['Name']}' already exists."
+            )
 
 
 def glue_resource_summary(resource_name: str, resource_list: Iterable[Any]):
