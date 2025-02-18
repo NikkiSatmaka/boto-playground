@@ -330,22 +330,24 @@ def main(source_region: str, target_region: str):
     source_analyses_arns = get_arns(source_analyses, lambda x: x)
     source_dashboard_arns = get_arns(source_dashboards, lambda x: x)
 
-    # Export assets
-    asset_data = export_assets(
-        qs_source,
-        [
-            *source_dashboard_arns,
-            *source_analyses_arns,
-            *source_data_set_arns,
-            *source_data_source_arns,
-        ],
-    )
-    QS_EXPORT_DIR.mkdir(exist_ok=True)
-    with open(QS_EXPORT_DIR.joinpath("quicksight_asset_bundle.qs"), "wb") as f:
-        f.write(asset_data)
+    all_arns = [
+        *source_dashboard_arns,
+        *source_analyses_arns,
+        *source_data_set_arns,
+        *source_data_source_arns,
+    ]
 
-    # Import assets
-    import_assets(qs_target, asset_data)
+    for arn in all_arns:
+        # Export assets
+        asset_data = export_assets(qs_source, [arn])
+        QS_EXPORT_DIR.mkdir(exist_ok=True)
+        with open(
+            QS_EXPORT_DIR.joinpath(f"quicksight_asset_bundle-{arn}.qs"), "wb"
+        ) as f:
+            f.write(asset_data)
+
+        # Import assets
+        import_assets(qs_target, asset_data)
 
     # Migrate folders and permissions
     migrate_folders_and_members(qs_source, qs_target)
