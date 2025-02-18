@@ -35,52 +35,47 @@ def filter_successful(assets: Iterable) -> Iterable:
     )
 
 
+def get_qs_paginated_assets(
+    qs_client: QuickSightClient, method_name: str, key: str
+) -> Iterable:
+    """Helper function to paginate through QuickSight API responses."""
+    paginator = qs_client.get_paginator(method_name)
+    for page in paginator.paginate(AwsAccountId=AWS_ACCOUNT_ID):
+        for asset in page.get(key, []):
+            yield asset
+
+
 def get_qs_data_sources(qs_client: QuickSightClient) -> Iterable:
     """Retrieve QuickSight data sources with pagination support."""
 
     def filter_data_sources(assets: Iterable) -> Iterable:
         return list(filter(lambda x: "DataSourceParameters" in x, assets))
 
-    paginator = qs_client.get_paginator("list_data_sources")
-    for page in paginator.paginate(AwsAccountId=AWS_ACCOUNT_ID):
-        for data_sources in page.get("DataSources", []):
-            yield filter_data_sources(data_sources)
+    return filter_data_sources(
+        get_qs_paginated_assets(qs_client, "list_data_sources", "DataSources")
+    )
 
 
 def get_qs_data_sets(qs_client: QuickSightClient) -> Iterable:
     """Retrieve QuickSight data sets with pagination support."""
-
-    paginator = qs_client.get_paginator("list_data_sets")
-    for page in paginator.paginate(AwsAccountId=AWS_ACCOUNT_ID):
-        for data_sets in page.get("DataSetSummaries", []):
-            yield data_sets
+    return get_qs_paginated_assets(qs_client, "list_data_sets", "DataSetSummaries")
 
 
 def get_qs_analyses(qs_client: QuickSightClient) -> Iterable:
     """Retrieve QuickSight analyses with pagination support."""
-
-    paginator = qs_client.get_paginator("list_analyses")
-    for page in paginator.paginate(AwsAccountId=AWS_ACCOUNT_ID):
-        for analyses in page.get("AnalysisSummaryList", []):
-            yield filter_successful(analyses)
+    return filter_successful(
+        get_qs_paginated_assets(qs_client, "list_analyses", "AnalysisSummaryList")
+    )
 
 
 def get_qs_dashboards(qs_client: QuickSightClient) -> Iterable:
     """Retrieve QuickSight dashboards with pagination support."""
-
-    paginator = qs_client.get_paginator("list_dashboards")
-    for page in paginator.paginate(AwsAccountId=AWS_ACCOUNT_ID):
-        for dashboards in page.get("DashboardSummaryList", []):
-            yield filter_successful(dashboards)
+    return get_qs_paginated_assets(qs_client, "list_dashboards", "DashboardSummaryList")
 
 
 def get_qs_folders(qs_client: QuickSightClient) -> Iterable:
     """Retrieve QuickSight folders with pagination support."""
-
-    paginator = qs_client.get_paginator("list_folders")
-    for page in paginator.paginate(AwsAccountId=AWS_ACCOUNT_ID):
-        for folders in page.get("FolderSummaryList", []):
-            yield folders
+    return get_qs_paginated_assets(qs_client, "list_folders", "FolderSummaryList")
 
 
 def get_qs_all_assets(qs_client: QuickSightClient) -> Mapping:
