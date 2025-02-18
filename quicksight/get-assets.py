@@ -81,9 +81,6 @@ def get_qs_folders(qs_client: QuickSightClient) -> Iterable:
 def get_qs_all_assets(qs_client: QuickSightClient) -> Mapping:
     """Retrieve all QuickSight assets from the given region."""
 
-    def filter_data_sources(assets: Iterable) -> Iterable:
-        return list(filter(lambda x: "DataSourceParameters" in x, assets))
-
     data_sources = get_qs_data_sources(qs_client)
     data_sets = get_qs_data_sets(qs_client)
     analyses = get_qs_analyses(qs_client)
