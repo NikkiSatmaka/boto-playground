@@ -338,11 +338,13 @@ def main(source_region: str, target_region: str):
     ]
 
     for arn in all_arns:
+        file_identifier = arn.split(":")[-1].replace("/", "j")
         # Export assets
         asset_data = export_assets(qs_source, [arn])
         QS_EXPORT_DIR.mkdir(exist_ok=True)
         with open(
-            QS_EXPORT_DIR.joinpath(f"quicksight_asset_bundle-{arn}.qs"), "wb"
+            QS_EXPORT_DIR.joinpath(f"quicksight_asset_bundle-{file_identifier}.qs"),
+            "wb",
         ) as f:
             f.write(asset_data)
 
