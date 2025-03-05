@@ -1,4 +1,6 @@
+from datetime import datetime
 from functools import partial
+from itertools import batched
 from operator import itemgetter
 from pathlib import Path
 from time import sleep
@@ -337,10 +339,12 @@ def main(source_region: str, target_region: str):
         *source_data_source_arns,
     ]
 
-    for arn in all_arns:
-        file_identifier = arn.split(":")[-1].replace("/", "j")
+    chunk_size = 100
+    chunked_arns = batched(all_arns, chunk_size)
+    for idx, arns in enumerate(chunked_arns):
+        file_identifier = f"{idx:03}-{datetime.now().strftime('%Y-%m-%d-%H-%M%-%S')}"
         # Export assets
-        asset_data = export_assets(qs_source, [arn])
+        asset_data = export_assets(qs_source, arns)
         QS_EXPORT_DIR.mkdir(exist_ok=True)
         with open(
             QS_EXPORT_DIR.joinpath(f"quicksight_asset_bundle-{file_identifier}.qs"),
