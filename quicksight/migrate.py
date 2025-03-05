@@ -17,6 +17,7 @@ load_dotenv()
 
 AWS_ACCOUNT_ID = boto3.client("sts").get_caller_identity()["Account"]
 ROOT_DIR = Path(__file__).parent.absolute()
+LOG_DIR = ROOT_DIR.joinpath("log")
 QS_EXPORT_DIR = ROOT_DIR.joinpath("data")
 
 app = typer.Typer()
@@ -143,6 +144,7 @@ def export_assets(qs_client: QuickSightClient, resource_arns: Sequence[str]) -> 
         sleep(2)
 
     if job_status["JobStatus"] == "FAILED":
+        logger.error(job_status["Errors"])
         raise Exception("QuickSight asset export failed")
 
     # Download asset bundle
@@ -179,6 +181,7 @@ def import_assets(qs_client: QuickSightClient, asset_data: bytes):
         sleep(2)
 
     if job_status["JobStatus"] in ["FAILED", "FAILED_ROLLBACK_COMPLETED"]:
+        logger.error(job_status["Errors"])
         raise Exception("QuickSight asset import failed")
 
     logger.info("QuickSight asset import completed successfully")
@@ -311,6 +314,15 @@ def get_arns(data_sources, criteria):
 
 @app.command()
 def main(source_region: str, target_region: str):
+    start_ts = datetime.now()
+    # prepare log file
+    LOG_DIR.mkdir(exist_ok=True)
+    logger.add(
+        LOG_DIR.joinpath(
+            f"migration-{source_region}-{target_region}-{start_ts.strftime('%Y-%m-%d-%H-%M-%S')}.log"
+        )
+    )
+
     session = boto3.Session()
 
     logger.info(f"AWS Account ID: {AWS_ACCOUNT_ID}")
