@@ -174,7 +174,7 @@ def main(region: str):
             if not v:
                 continue
             for _ in v:
-                f.write(f"{k},{_['Name']}")
+                f.write(f"{k},{_['Name']},{_['Arn']}")
                 f.write("\n")
 
 
