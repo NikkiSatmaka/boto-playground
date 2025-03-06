@@ -168,7 +168,7 @@ def main(region: str):
 
     QS_EXPORT_DIR.mkdir(exist_ok=True)
     with open(QS_EXPORT_DIR.joinpath(f"qs_list_assets-{region}.csv"), "w") as f:
-        f.write("asset_type,name")
+        f.write("asset_type,name,arn")
         f.write("\n")
         for k, v in assets.items():
             if not v:
