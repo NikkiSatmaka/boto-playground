@@ -19,6 +19,7 @@ AWS_ACCOUNT_ID = boto3.client("sts").get_caller_identity()["Account"]
 ROOT_DIR = Path(__file__).parent.absolute()
 LOG_DIR = ROOT_DIR.joinpath("log")
 QS_EXPORT_DIR = ROOT_DIR.joinpath("data")
+QS_RETRY_DIR = QS_EXPORT_DIR.joinpath("retry")
 
 app = typer.Typer()
 
@@ -144,7 +145,11 @@ def export_assets(qs_client: QuickSightClient, resource_arns: Sequence[str]) -> 
         sleep(2)
 
     if job_status["JobStatus"] == "FAILED":
-        logger.error(job_status["Errors"])
+        logger.error(f"{job_status['Errors']}. Saved failed arns to retry dir")
+        with open(
+            QS_RETRY_DIR.joinpath(f"arns-{datetime.now().timestamp()}.txt", "w")
+        ) as f:
+            f.writelines(job_status["ResourceArns"])
         raise Exception("QuickSight asset export failed")
 
     # Download asset bundle
@@ -322,6 +327,8 @@ def main(source_region: str, target_region: str):
             f"migration-{source_region}-{target_region}-{start_ts.strftime('%Y-%m-%d-%H-%M-%S')}.log"
         )
     )
+    QS_EXPORT_DIR.mkdir(exist_ok=True)
+    QS_RETRY_DIR.mkdir(exist_ok=True)
 
     session = boto3.Session()
 
@@ -356,8 +363,11 @@ def main(source_region: str, target_region: str):
     for idx, arns in enumerate(chunked_arns):
         file_identifier = f"{idx:03}-{datetime.now().strftime('%Y-%m-%d-%H-%M%-%S')}"
         # Export assets
-        asset_data = export_assets(qs_source, arns)
-        QS_EXPORT_DIR.mkdir(exist_ok=True)
+        try:
+            asset_data = export_assets(qs_source, arns)
+        except Exception as e:
+            logger.error(e)
+            continue
         with open(
             QS_EXPORT_DIR.joinpath(f"quicksight_asset_bundle-{file_identifier}.qs"),
             "wb",
