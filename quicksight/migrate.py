@@ -147,7 +147,7 @@ def export_assets(qs_client: QuickSightClient, resource_arns: Sequence[str]) -> 
     if job_status["JobStatus"] == "FAILED":
         logger.error(f"{job_status['Errors']}. Saved failed arns to retry dir")
         with open(
-            QS_RETRY_DIR.joinpath(f"arns-{datetime.now().timestamp()}.txt", "w")
+            QS_RETRY_DIR.joinpath(f"arns-{int(datetime.now().timestamp())}.txt"), "w"
         ) as f:
             f.writelines(job_status["ResourceArns"])
         raise Exception("QuickSight asset export failed")
